@@ -1,94 +1,148 @@
 {
-  cmake,
-  fetchFromGitHub,
-  ninja,
-  nodejs,
   stdenv,
-  lib,
-  fetchNpmDeps,
-  npmHooks,
-
-  abseil-cpp,
-  cmark-gfm,
-  libqalculate,
-  minizip,
+  fetchFromGitHub,
+  cmake,
+  pkg-config,
+  kdePackages,
   rapidfuzz-cpp,
   protobuf,
-  kdePackages,
+  grpc-tools,
+  nodejs,
+  minizip-ng,
+  cmark-gfm,
+  libqalculate,
+  ninja,
+  lib,
+  fetchNpmDeps,
+  protoc-gen-js,
+  rsync,
+  which,
+  autoPatchelfHook,
+  writeShellScriptBin,
+  minizip,
   qt6,
-  openssl,
+  typescript,
+  wayland,
 }:
 let
-  _src = fetchFromGitHub {
+  src = fetchFromGitHub {
     owner = "vicinaehq";
     repo = "vicinae";
     tag = "v0.14.2";
     hash = "sha256-LoTp1sPD5c6wBWp1g4yqJwhkLE9liPRA7tSJYRnP8fQ=";
   };
-  apiNpmDeps = fetchNpmDeps {
-	  name = "vicinae-0.14.2-api-npm-deps";
-	  src = "${_src}/typescript/api";
-	  hash = "sha256-dSHEzw15lSRRbldl9PljuWFf2htdG+HgSeKPAB88RBg=";
+  apiDeps = fetchNpmDeps {
+    src = src + /typescript/api;
+    hash = "sha256-dSHEzw15lSRRbldl9PljuWFf2htdG+HgSeKPAB88RBg=";
   };
-  extension-managerNpmDeps = fetchNpmDeps {
-	  name = "vicinae-0.14.2-extension-manager-npm-deps";
-	  src = "${_src}/typescript/extension-manager";
-	  hash = "sha256-TCT7uZRZn4rsLA/z2yLeK5Bt4DJPmdSC4zkmuCxTtc8=";
+  ts-protoc-gen-wrapper = writeShellScriptBin "protoc-gen-ts_proto" ''
+    exec node /build/source/vicinae-upstream/typescript/api/node_modules/.bin/protoc-gen-ts_proto
+  '';
+  extensionManagerDeps = fetchNpmDeps {
+    src = src + /typescript/extension-manager;
+    hash = "sha256-TCT7uZRZn4rsLA/z2yLeK5Bt4DJPmdSC4zkmuCxTtc8=";
   };
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "vicinae";
   version = "0.14.2";
 
-  src = _src; 
+  inherit src; 
 
-  postPatch = ''
-	# export npmRoot=./typescript/api
-	local postPatchHooks=()
-	source ${npmHooks.npmConfigHook}/nix-support/setup-hook
-	npmRoot=./typescript/api npmDeps=${apiNpmDeps} npmConfigHook
-	npmRoot=./typescript/extension-manager npmDeps=${extension-managerNpmDeps} npmConfigHook
-	echo "Done with npm silliness"
-  '';
+  cmakeFlags = [
+    "-DVICINAE_PROVENANCE=nix"
+    "-DINSTALL_NODE_MODULES=OFF"
+    "-DCMAKE_INSTALL_PREFIX=${placeholder "out"}"
+    "-DCMAKE_INSTALL_DATAROOTDIR=share"
+    "-DCMAKE_INSTALL_BINDIR=bin"
+    "-DCMAKE_INSTALL_LIBDIR=lib"
+  ];
 
   nativeBuildInputs = [
-    # autoPatchelfHook
+    ts-protoc-gen-wrapper
+    extensionManagerDeps
+    autoPatchelfHook
     cmake
-    cmark-gfm
-    kdePackages.layer-shell-qt
-    kdePackages.qtkeychain
-    libqalculate
-    minizip
     ninja
     nodejs
-    protobuf
-    qt6.qtbase
-    qt6.qtsvg
-    qt6.qtwayland
+    pkg-config
     qt6.wrapQtAppsHook
     rapidfuzz-cpp
-  ];
-  buildInputs = [
-    abseil-cpp
-    cmark-gfm
-    kdePackages.layer-shell-qt
-    kdePackages.qtkeychain
-    libqalculate
-    minizip
-    nodejs
-    openssl
+    protoc-gen-js
     protobuf
-    qt6.qt5compat
-    qt6.qtdeclarative
-    qt6.qtbase
-    qt6.qtsvg
-    qt6.qtwayland
-  ];
-  cmakeFlags = with lib.strings; [
-  	(cmakeBool "USE_SYSTEM_PROTOBUF" true)
-	  (cmakeBool "USE_SYSTEM_ABSEIL" true)
-	  (cmakeBool "USE_SYSTEM_CMARK_GFM" true)
-	  (cmakeBool "USE_SYSTEM_MINIZIP" true)
+    grpc-tools
+    which
+    rsync
+    typescript
   ];
 
+  buildInputs = [
+    qt6.qtbase
+    qt6.qtsvg
+    qt6.qttools
+    qt6.qtwayland
+    qt6.qtdeclarative
+    qt6.qt5compat
+    wayland
+    kdePackages.qtkeychain
+    kdePackages.layer-shell-qt
+    minizip
+    grpc-tools
+    protobuf
+    nodejs
+    minizip-ng
+    cmark-gfm
+    libqalculate
+  ];
+  configurePhase = ''
+    cmake -G Ninja -B build $cmakeFlags
+  '';
+
+  buildPhase = ''
+    buildDir=$PWD
+    echo $buildDir
+    export npm_config_cache=${apiDeps}
+    cd $buildDir/typescript/api
+    npm i --ignore-scripts
+    patchShebangs $buildDir/typescript/api
+    npm rebuild --foreground-scripts
+    export npm_config_cache=${extensionManagerDeps}
+    cd $buildDir/typescript/extension-manager
+    npm i --ignore-scripts
+    patchShebangs $buildDir/typescript/extension-manager
+    npm rebuild --foreground-scripts
+    cd $buildDir
+    cmake --build build
+    cd $buildDir
+  '';
+
+  dontWrapQtApps = true;
+  # preFixup = ''
+  #   wrapQtApp "$out/bin/vicinae" --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath buildInputs}
+  # '';
+  postFixup = ''
+    wrapProgram $out/bin/vicinae \
+    --prefix PATH : ${
+      lib.makeBinPath [
+        nodejs
+        qt6.qtwayland
+        wayland
+        (placeholder "out")
+      ]
+    }
+  '';
+
+  installPhase = ''
+    cmake --install build
+  '';
+
+  meta = with lib; {
+    description = "A focused launcher for your desktop — native, fast, extensible";
+    homepage = "https://github.com/vicinaehq/vicinae";
+    license = licenses.gpl3Plus;
+    mainProgram = "vicinae";
+  };
+  passthru = {
+    inherit apiDeps extensionManagerDeps;
+  };
 })
