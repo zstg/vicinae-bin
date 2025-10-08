@@ -25,7 +25,7 @@ jobs:
         key: ${{ runner.os }}-nix-store-${{ hashFiles('flake.nix') }}
         restore-keys: |
           ${{ runner.os }}-nix-store-
-	  
+
     - name: Update ref in flake.nix with latest tag
       run: |
         REPO_URL="https://github.com/vicinaehq/vicinae.git"
