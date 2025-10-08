@@ -141,6 +141,8 @@ stdenv.mkDerivation (finalAttrs: {
     homepage = "https://github.com/vicinaehq/vicinae";
     license = licenses.gpl3Plus;
     mainProgram = "vicinae";
+    maintainers = with maintainers; [ zstg ];
+    platforms = platforms.linux;
   };
   passthru = {
     inherit apiDeps extensionManagerDeps;
