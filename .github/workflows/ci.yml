@@ -26,17 +26,11 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-nix-store-
 
-    - name: Update ref in flake.nix with latest tag
-      run: |
-        REPO_URL="https://github.com/vicinaehq/vicinae.git"
-        LATEST_TAG=$(git ls-remote --tags --sort=-v:refname $REPO_URL | head -n 1 | awk -F'/' '{print $3}')
-        sed -i 's|\(stable.url = "github:vicinaehq/vicinae?ref=\)[^"]*|\1'"$LATEST_TAG"'|' ../../flake.nix
-
     - name: Build stable package
       run: nix build .#packages.x86_64-linux.stable
 
-    - name: Build git package
-      run: nix build .#packages.x86_64-linux.git
+    # - name: Build git package
+    #   run: nix build .#packages.x86_64-linux.git
 
     - name: Upload stable build artifact
       uses: actions/upload-artifact@v4
@@ -44,8 +38,17 @@ jobs:
         name: vicinae-stable
         path: ./result
 
-    - name: Upload git build artifact
-      uses: actions/upload-artifact@v4
+    # - name: Upload git build artifact
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: vicinae-git
+    #     path: ./result
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: vicinae-git
-        path: ./result
+        name: "vicinae-stable"
+        tag_name: "v${{ github.run_number }}"
+        files: result/**
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
